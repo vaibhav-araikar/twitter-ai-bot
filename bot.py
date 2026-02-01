@@ -3,19 +3,12 @@ import random
 import time
 import tweepy
 from dotenv import load_dotenv
-from google import genai
+from datetime import datetime
 
 # =========================
 # LOAD ENV
 # =========================
 load_dotenv()
-
-# =========================
-# GEMINI CLIENT
-# =========================
-ai = genai.Client(
-    api_key=os.getenv("GEMINI_API_KEY")
-)
 
 # =========================
 # TWITTER CLIENT
@@ -29,91 +22,75 @@ client = tweepy.Client(
 )
 
 # =========================
-# CONFIG
+# LOCAL VIRAL GENERATOR
+# (No AI quota needed)
 # =========================
-topics = [
-    "AI tools",
-    "coding productivity",
-    "tech careers",
-    "future technology",
-    "developer mindset"
+
+hooks = [
+    "Most developers ignore this:",
+    "Nobody tells you this in tech:",
+    "Want to grow faster in tech?",
+    "Hard truth for developers:",
 ]
 
-fallback_tweets = [
-    "Build skills daily. Tech rewards consistency 🚀 #Tech",
-    "Small progress daily = big career growth 💡 #Coding",
-    "Focus on fundamentals. Tools change, basics stay. #Developers"
+tips = [
+    "Code daily for 30 mins.",
+    "Build projects, not just courses.",
+    "Master one skill at a time.",
+    "Focus on fundamentals first.",
+]
+
+hashtags = [
+    "#Coding",
+    "#Developers",
+    "#TechTips",
+    "#100DaysOfCode",
+]
+
+questions = [
+    "Agree?",
+    "Your thoughts?",
+    "Do you do this?",
+    "What's your experience?",
 ]
 
 # =========================
-# VIRAL TWEET GENERATOR
+# GENERATE UNIQUE TWEET
 # =========================
 def generate_tweet():
-    topic = random.choice(topics)
+    tweet = f"{random.choice(hooks)} {random.choice(tips)} {random.choice(hashtags)} {random.choice(questions)}"
 
-    prompt = f"""
-Write a viral tweet about {topic}.
+    # Make it UNIQUE always
+    unique_id = datetime.utcnow().strftime("%H%M%S")
 
-Rules:
-- Under 200 characters
-- 1 strong hook
-- 1 actionable tip
-- 1 trending hashtag
-- Motivational tone
-- End with a question
-"""
-
-    try:
-        res = ai.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt
-        )
-
-        tweet = res.text.strip()
-
-        if len(tweet) > 240:
-            return random.choice(fallback_tweets)
-
-        return tweet
-
-    except Exception as e:
-        print("Gemini failed:", e)
-        return random.choice(fallback_tweets)
+    return f"{tweet} [{unique_id}]"
 
 # =========================
-# POST TWEET
+# POST TWEET SAFE
 # =========================
 def post_tweet():
     print("Posting tweet...")
-    tweet = generate_tweet()
 
-    try:
-        client.create_tweet(text=tweet)
-        print("Tweeted:", tweet)
+    for attempt in range(3):
+        tweet = generate_tweet()
 
-    except tweepy.Forbidden:
-        print("Duplicate tweet detected. Using fallback.")
-        tweet = random.choice(fallback_tweets)
-        client.create_tweet(text=tweet)
+        try:
+            client.create_tweet(text=tweet)
+            print("Tweeted:", tweet)
+            return
 
-    except Exception as e:
-        print("Twitter error:", e)
+        except tweepy.Forbidden:
+            print("Duplicate detected, retrying...")
+            time.sleep(2)
 
-# =========================
-# TONE DETECTION
-# =========================
-def detect_tone(text):
-    text = text.lower()
+        except Exception as e:
+            print("Twitter error:", e)
+            return
 
-    if any(x in text for x in ["bad","stupid","hate","worst"]):
-        return "roast"
-    elif any(x in text for x in ["love","great","awesome"]):
-        return "positive"
-    else:
-        return "neutral"
+    print("Failed after retries.")
 
 # =========================
-# AUTO REPLY (SAFE MODE)
+# SAFE AUTO-REPLY
 # =========================
 def auto_reply():
     print("Checking mentions...")
@@ -127,18 +104,14 @@ def auto_reply():
         )
 
         if not mentions.data:
-            print("No mentions.")
             return
 
         for m in mentions.data:
-            tone = detect_tone(m.text)
-
-            if tone == "roast":
-                reply = "Haha 😄 I'll try to improve. Appreciate the feedback!"
-            elif tone == "positive":
-                reply = "Glad you liked it! 🚀 More value coming!"
-            else:
-                reply = "Thanks for engaging! 🙌"
+            reply = random.choice([
+                "Appreciate your reply 🙌",
+                "Thanks for engaging 🚀",
+                "Glad you joined the convo 😄",
+            ])
 
             client.create_tweet(
                 text=reply,
@@ -147,11 +120,8 @@ def auto_reply():
 
             print("Replied to:", m.id)
 
-    except tweepy.Unauthorized:
-        print("Mentions access not allowed on your X plan — skipping auto-reply.")
-
-    except Exception as e:
-        print("Auto-reply error:", e)
+    except:
+        print("Auto-reply skipped (plan limitation).")
 
 # =========================
 # MAIN
@@ -160,8 +130,6 @@ if __name__ == "__main__":
     print("Bot starting...")
 
     post_tweet()
-
-    # OPTIONAL (safe)
     auto_reply()
 
     print("Bot finished.")
