@@ -13,7 +13,9 @@ load_dotenv()
 # =========================
 # GEMINI CLIENT
 # =========================
-ai = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+ai = genai.Client(
+    api_key=os.getenv("GEMINI_API_KEY")
+)
 
 # =========================
 # TWITTER CLIENT
@@ -66,9 +68,10 @@ Rules:
             model="gemini-2.0-flash",
             contents=prompt
         )
+
         tweet = res.text.strip()
 
-        if len(tweet) > 250:
+        if len(tweet) > 240:
             return random.choice(fallback_tweets)
 
         return tweet
@@ -88,6 +91,11 @@ def post_tweet():
         client.create_tweet(text=tweet)
         print("Tweeted:", tweet)
 
+    except tweepy.Forbidden:
+        print("Duplicate tweet detected. Using fallback.")
+        tweet = random.choice(fallback_tweets)
+        client.create_tweet(text=tweet)
+
     except Exception as e:
         print("Twitter error:", e)
 
@@ -97,49 +105,53 @@ def post_tweet():
 def detect_tone(text):
     text = text.lower()
 
-    if any(x in text for x in ["bad", "stupid", "hate", "worst"]):
+    if any(x in text for x in ["bad","stupid","hate","worst"]):
         return "roast"
-    elif any(x in text for x in ["love", "great", "awesome"]):
+    elif any(x in text for x in ["love","great","awesome"]):
         return "positive"
     else:
         return "neutral"
 
 # =========================
-# AUTO REPLY TO MENTIONS
+# AUTO REPLY (SAFE MODE)
 # =========================
 def auto_reply():
     print("Checking mentions...")
 
-    me = client.get_me().data.id
+    try:
+        me = client.get_me().data.id
 
-    mentions = client.get_users_mentions(
-        id=me,
-        max_results=5
-    )
+        mentions = client.get_users_mentions(
+            id=me,
+            max_results=5
+        )
 
-    if not mentions.data:
-        print("No mentions.")
-        return
+        if not mentions.data:
+            print("No mentions.")
+            return
 
-    for m in mentions.data:
-        tone = detect_tone(m.text)
+        for m in mentions.data:
+            tone = detect_tone(m.text)
 
-        if tone == "roast":
-            reply = "Haha 😄 I'll try to improve. Appreciate the feedback!"
-        elif tone == "positive":
-            reply = "Glad you liked it! 🚀 More value coming!"
-        else:
-            reply = "Thanks for engaging! 🙌"
+            if tone == "roast":
+                reply = "Haha 😄 I'll try to improve. Appreciate the feedback!"
+            elif tone == "positive":
+                reply = "Glad you liked it! 🚀 More value coming!"
+            else:
+                reply = "Thanks for engaging! 🙌"
 
-        try:
             client.create_tweet(
                 text=reply,
                 in_reply_to_tweet_id=m.id
             )
+
             print("Replied to:", m.id)
 
-        except Exception as e:
-            print("Reply error:", e)
+    except tweepy.Unauthorized:
+        print("Mentions access not allowed on your X plan — skipping auto-reply.")
+
+    except Exception as e:
+        print("Auto-reply error:", e)
 
 # =========================
 # MAIN
@@ -148,6 +160,8 @@ if __name__ == "__main__":
     print("Bot starting...")
 
     post_tweet()
+
+    # OPTIONAL (safe)
     auto_reply()
 
     print("Bot finished.")
