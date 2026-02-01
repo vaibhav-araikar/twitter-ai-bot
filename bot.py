@@ -9,10 +9,12 @@ from google.genai.errors import ClientError
 # ---------- LOAD ENV ----------
 load_dotenv()
 
+print("Bot starting...")
+
 # ---------- GEMINI CLIENT ----------
 client_ai = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-# ---------- TWITTER V2 CLIENT ----------
+# ---------- TWITTER CLIENT ----------
 client = tweepy.Client(
     consumer_key=os.getenv("API_KEY"),
     consumer_secret=os.getenv("API_SECRET"),
@@ -45,25 +47,38 @@ def generate_tweet():
     Include 1 hashtag.
     """
 
-    for _ in range(2):
-        try:
-            response = client_ai.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=prompt,
-            )
-            return response.text.strip()
-        except ClientError:
-            time.sleep(3)
+    try:
+        print("Generating tweet with Gemini...")
+        response = client_ai.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+        )
 
-    return random.choice(fallback_tweets)
+        tweet = response.text.strip()
+        print("AI tweet:", tweet)
+        return tweet
+
+    except ClientError as e:
+        print("Gemini failed:", e)
+        return random.choice(fallback_tweets)
+
 
 # ---------- POST TWEET ----------
 def post_tweet():
-    tweet = generate_tweet()
+    try:
+        tweet = generate_tweet()
 
-    client.create_tweet(text=tweet)
-    print("Tweeted:", tweet)
+        print("Posting tweet...")
+        client.create_tweet(text=tweet)
+
+        print("Tweet posted successfully!")
+        print("Tweet content:", tweet)
+
+    except Exception as e:
+        print("Twitter error:", e)
+
 
 # ---------- MAIN ----------
 if __name__ == "__main__":
     post_tweet()
+    print("Bot finished.")
