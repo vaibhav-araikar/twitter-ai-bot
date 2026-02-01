@@ -1,154 +1,190 @@
 import os
 import random
 import json
+import time
 import tweepy
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
 
 # =========================
-# LOAD ENV
+# ENV
 # =========================
 load_dotenv()
 
 # =========================
-# GEMINI SAFE SETUP
+# GEMINI SETUP
 # =========================
-GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+use_ai=False
 
-use_ai = False
-
-if GEMINI_KEY:
+if os.getenv("GEMINI_API_KEY"):
     try:
-        genai.configure(api_key=GEMINI_KEY)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        use_ai = True
-        print("Gemini enabled")
+        ai=genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        use_ai=True
+        print("AI Enabled")
     except:
-        print("Gemini disabled")
-        use_ai = False
+        use_ai=False
 
 # =========================
 # TWITTER CLIENT
 # =========================
-client = tweepy.Client(
+client=tweepy.Client(
     consumer_key=os.getenv("API_KEY"),
     consumer_secret=os.getenv("API_SECRET"),
     access_token=os.getenv("ACCESS_TOKEN"),
-    access_token_secret=os.getenv("ACCESS_SECRET"),
-    wait_on_rate_limit=True
+    access_token_secret=os.getenv("ACCESS_SECRET")
 )
 
 # =========================
-# MEMORY (NO DUPLICATES)
+# COOLDOWN SYSTEM
 # =========================
-MEMORY_FILE="memory.json"
+COOLDOWN="cooldown.txt"
+LIMIT_FILE="limit.txt"
 
-if not os.path.exists(MEMORY_FILE):
-    json.dump([],open(MEMORY_FILE,"w"))
+def limit_active():
+    if not os.path.exists(LIMIT_FILE):
+        return False
+    last=float(open(LIMIT_FILE).read())
+    return time.time()-last<12*60*60  # 12 hour sleep after limit
 
-def load_memory():
-    return json.load(open(MEMORY_FILE))
+def activate_limit():
+    open(LIMIT_FILE,"w").write(str(time.time()))
 
-def save_memory(m):
-    json.dump(m,open(MEMORY_FILE,"w"))
+def can_post():
+    if limit_active():
+        print("Rate-limit sleep active. Skipping.")
+        return False
+
+    if not os.path.exists(COOLDOWN):
+        return True
+    last=float(open(COOLDOWN).read())
+    return time.time()-last>3*60*60  # 3 hours
+
+def update_cooldown():
+    open(COOLDOWN,"w").write(str(time.time()))
 
 # =========================
-# FALLBACK CONTENT
+# MEMORY SYSTEM
 # =========================
-hooks=[
-"Most developers ignore this:",
-"Unpopular tech truth:",
-"If you want a tech career:",
-"90% of coders do this wrong:"
+MEMORY="memory.json"
+
+if not os.path.exists(MEMORY):
+    json.dump([],open(MEMORY,"w"))
+
+def load_mem():
+    return json.load(open(MEMORY))
+
+def save_mem(m):
+    json.dump(m,open(MEMORY,"w"))
+
+# =========================
+# MASSIVE TOPIC LIST
+# =========================
+topics=[
+"AI tools","ChatGPT","generative AI","AI automation",
+"AI startups","AI in business","future of AI",
+"AI careers","AI productivity","AI agents",
+"Python tips","JavaScript","coding careers",
+"learning to code","clean code","debugging",
+"system design","open source","GitHub projects",
+"remote tech jobs","tech salaries","developer resumes",
+"freelance coding","tech interviews","side hustles",
+"SaaS ideas","bootstrapping","MVP building",
+"indie hacking","no-code tools","startup growth",
+"deep work","focus habits","time management",
+"learning faster","developer discipline",
+"cloud computing","AWS","data science",
+"data analytics","big data",
+"cybersecurity","ethical hacking","privacy",
+"blockchain","Web3","crypto tech",
+"coding bootcamps","self-taught devs","learning hacks"
 ]
 
-tips=[
-"Build projects, not just courses.",
-"Master fundamentals deeply.",
-"Consistency beats motivation.",
-"Portfolio > certificates."
+# =========================
+# TWEET STYLES
+# =========================
+styles=[
+"Write a motivational tweet about {topic} with one hashtag.",
+"Write a practical tip about {topic} with one hashtag.",
+"Write a myth vs truth tweet about {topic} with one hashtag.",
+"Write a career advice tweet about {topic} with one hashtag.",
+"Write a short insight about {topic} with one hashtag."
 ]
 
-hashtags=["#Coding","#Developers","#Tech","#AI"]
-
+# =========================
+# FALLBACK
+# =========================
 fallback=[
-f"{random.choice(hooks)} {random.choice(tips)} {random.choice(hashtags)}"
-for _ in range(10)
+"Build skills daily. Tech rewards consistency. #Developers",
+"Projects > certificates in tech careers. #Coding",
+"Small progress daily creates big results. #Tech",
+"Focus on fundamentals first. #AI"
 ]
 
 # =========================
 # AI GENERATOR
 # =========================
-topics=[
-"AI tools","coding careers","developer productivity",
-"tech salaries","learning to code","future of AI",
-"remote tech jobs","startups","automation"
-]
-
 def ai_tweet():
     if not use_ai:
         return None
 
     topic=random.choice(topics)
-
-    prompt=f"""
-Write a professional tweet about {topic}.
-
-Rules:
-- under 300 chars
-- helpful or motivational
-- 2 hashtag
-- professional and human tone
-"""
+    style=random.choice(styles)
+    prompt=style.format(topic=topic)
 
     try:
-        r=model.generate_content(prompt)
+        r=ai.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
         return r.text.strip()
     except:
-        print("Gemini quota/failure")
         return None
 
 # =========================
-# GENERATE TWEET
+# UNIQUE TWEET
 # =========================
 def generate_tweet():
-    memory=load_memory()
+    mem=load_mem()
 
     for _ in range(5):
-        tweet=ai_tweet()
+        t=ai_tweet()
+        if not t:
+            t=random.choice(fallback)
 
-        if not tweet:
-            tweet=random.choice(fallback)
-
-        if tweet not in memory:
-            memory.append(tweet)
-
-            if len(memory)>40:
-                memory.pop(0)
-
-            save_memory(memory)
-            return tweet
+        if t not in mem:
+            mem.append(t)
+            if len(mem)>80:
+                mem.pop(0)
+            save_mem(mem)
+            return t
 
     return random.choice(fallback)
 
 # =========================
-# POST
+# POST FUNCTION
 # =========================
 def post():
+    if not can_post():
+        print("Cooldown active. Skipping.")
+        return
+
     tweet=generate_tweet()
 
     try:
         client.create_tweet(text=tweet,user_auth=True)
+        update_cooldown()
         print("Tweeted:",tweet)
 
-    except tweepy.Forbidden:
-        print("Duplicate blocked")
+    except tweepy.TooManyRequests:
+        print("Rate limit hit. Sleeping 12 hours.")
+        activate_limit()
+
     except Exception as e:
-        print("Twitter error:",e)
+        print("Error:",e)
 
 # =========================
 # MAIN
 # =========================
 if __name__=="__main__":
-    print("STABLE AI BOT RUNNING")
+    print("ADVANCED TECH BOT RUNNING")
     post()
