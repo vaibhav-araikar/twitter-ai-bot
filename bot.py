@@ -1,45 +1,51 @@
 import os
 import random
+import time
 import tweepy
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
 
-# ---------- LOAD ENV ----------
+# =========================
+# LOAD ENV
+# =========================
 load_dotenv()
 
-# ---------- GEMINI ----------
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash")
+# =========================
+# GEMINI CLIENT
+# =========================
+ai = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-# ---------- TWITTER CLIENT ----------
+# =========================
+# TWITTER CLIENT
+# =========================
 client = tweepy.Client(
     consumer_key=os.getenv("API_KEY"),
     consumer_secret=os.getenv("API_SECRET"),
     access_token=os.getenv("ACCESS_TOKEN"),
     access_token_secret=os.getenv("ACCESS_SECRET"),
+    wait_on_rate_limit=True
 )
 
-me = client.get_me().data
-BOT_USER_ID = me.id
-
-print("Logged in as:", me.username)
-
-# ---------- VIRAL TOPICS ----------
+# =========================
+# CONFIG
+# =========================
 topics = [
     "AI tools",
     "coding productivity",
     "tech careers",
-    "developer mindset",
-    "future of AI",
+    "future technology",
+    "developer mindset"
 ]
 
 fallback_tweets = [
-    "Consistency beats talent in tech 🚀 #AI",
-    "Your future salary depends on your current skills 💡 #Coding",
-    "Learn daily. Tech rewards action. #Developers",
+    "Build skills daily. Tech rewards consistency 🚀 #Tech",
+    "Small progress daily = big career growth 💡 #Coding",
+    "Focus on fundamentals. Tools change, basics stay. #Developers"
 ]
 
-# ---------- GENERATE VIRAL TWEET ----------
+# =========================
+# VIRAL TWEET GENERATOR
+# =========================
 def generate_tweet():
     topic = random.choice(topics)
 
@@ -56,45 +62,58 @@ Rules:
 """
 
     try:
-        r = model.generate_content(prompt)
-        return r.text.strip()
-    except:
+        res = ai.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
+        tweet = res.text.strip()
+
+        if len(tweet) > 250:
+            return random.choice(fallback_tweets)
+
+        return tweet
+
+    except Exception as e:
+        print("Gemini failed:", e)
         return random.choice(fallback_tweets)
 
-# ---------- POST TWEET ----------
+# =========================
+# POST TWEET
+# =========================
 def post_tweet():
+    print("Posting tweet...")
     tweet = generate_tweet()
 
     try:
         client.create_tweet(text=tweet)
         print("Tweeted:", tweet)
+
     except Exception as e:
-        print("Tweet failed:", e)
+        print("Twitter error:", e)
 
-# ---------- AI REPLY ----------
-def ai_reply(text):
-    prompt = f"""
-Reply to this tweet in a smart, short, engaging way.
+# =========================
+# TONE DETECTION
+# =========================
+def detect_tone(text):
+    text = text.lower()
 
-Tweet:
-"{text}"
+    if any(x in text for x in ["bad", "stupid", "hate", "worst"]):
+        return "roast"
+    elif any(x in text for x in ["love", "great", "awesome"]):
+        return "positive"
+    else:
+        return "neutral"
 
-Rules:
-- Detect tone
-- Friendly or witty
-- Under 120 characters
-"""
+# =========================
+# AUTO REPLY TO MENTIONS
+# =========================
+def auto_reply():
+    print("Checking mentions...")
 
-    try:
-        r = model.generate_content(prompt)
-        return r.text.strip()
-    except:
-        return None
+    me = client.get_me().data.id
 
-# ---------- AUTO ENGAGEMENT ----------
-def engage_mentions():
     mentions = client.get_users_mentions(
-        id=BOT_USER_ID,
+        id=me,
         max_results=5
     )
 
@@ -102,51 +121,33 @@ def engage_mentions():
         print("No mentions.")
         return
 
-    for tweet in mentions.data:
+    for m in mentions.data:
+        tone = detect_tone(m.text)
 
-        if tweet.author_id == BOT_USER_ID:
-            continue
+        if tone == "roast":
+            reply = "Haha 😄 I'll try to improve. Appreciate the feedback!"
+        elif tone == "positive":
+            reply = "Glad you liked it! 🚀 More value coming!"
+        else:
+            reply = "Thanks for engaging! 🙌"
 
-        text = tweet.text.lower()
-
-        reply = ai_reply(text)
-
-        if not reply:
-            reply = random.choice([
-                "Appreciate the input! 🚀",
-                "Interesting take 😄",
-                "Love the discussion 🔥"
-            ])
-
-        # Reply
         try:
             client.create_tweet(
                 text=reply,
-                in_reply_to_tweet_id=tweet.id
+                in_reply_to_tweet_id=m.id
             )
-            print("Replied:", reply)
-        except:
-            pass
+            print("Replied to:", m.id)
 
-        # Like
-        try:
-            client.like(tweet.id)
-            print("Liked mention")
-        except:
-            pass
+        except Exception as e:
+            print("Reply error:", e)
 
-        # Follow author
-        try:
-            client.follow_user(tweet.author_id)
-            print("Followed user")
-        except:
-            pass
-
-# ---------- MAIN ----------
+# =========================
+# MAIN
+# =========================
 if __name__ == "__main__":
-    print("GOD MODE V3 RUNNING")
+    print("Bot starting...")
 
     post_tweet()
-    engage_mentions()
+    auto_reply()
 
-    print("Done.")
+    print("Bot finished.")
