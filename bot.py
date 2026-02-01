@@ -5,13 +5,27 @@ import tweepy
 from dotenv import load_dotenv
 import google.generativeai as genai
 
+# =========================
+# LOAD ENV
+# =========================
 load_dotenv()
 
 # =========================
-# GEMINI SETUP
+# GEMINI SAFE SETUP
 # =========================
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+
+use_ai = False
+
+if GEMINI_KEY:
+    try:
+        genai.configure(api_key=GEMINI_KEY)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        use_ai = True
+        print("Gemini enabled")
+    except:
+        print("Gemini disabled")
+        use_ai = False
 
 # =========================
 # TWITTER CLIENT
@@ -25,93 +39,91 @@ client = tweepy.Client(
 )
 
 # =========================
-# MEMORY (avoid repeats)
+# MEMORY (NO DUPLICATES)
 # =========================
-MEMORY_FILE = "posted.json"
+MEMORY_FILE="memory.json"
 
 if not os.path.exists(MEMORY_FILE):
-    json.dump([], open(MEMORY_FILE,"w"))
+    json.dump([],open(MEMORY_FILE,"w"))
 
 def load_memory():
     return json.load(open(MEMORY_FILE))
 
-def save_memory(data):
-    json.dump(data, open(MEMORY_FILE,"w"))
+def save_memory(m):
+    json.dump(m,open(MEMORY_FILE,"w"))
 
 # =========================
-# MASSIVE TECH NICHES
+# FALLBACK CONTENT
 # =========================
-topics = [
-"AI tools","machine learning","deep learning","ChatGPT usage",
-"coding careers","remote tech jobs","startup growth",
-"SaaS building","developer productivity","programmer mindset",
-"Web3","blockchain","crypto tech","tech salaries",
-"learning to code","Python tips","JavaScript tips",
-"software engineering","system design","open source",
-"freelance tech","tech side hustles","automation",
-"future of AI","AI replacing jobs","AI business ideas",
-"data science","cloud computing","cybersecurity",
-"tech interviews","resume tips for developers",
-"coding bootcamps","self-taught developers",
-"tech entrepreneurship","digital products",
-"no-code tools","AI startups","productivity hacks"
+hooks=[
+"Most developers ignore this:",
+"Unpopular tech truth:",
+"If you want a tech career:",
+"90% of coders do this wrong:"
+]
+
+tips=[
+"Build projects, not just courses.",
+"Master fundamentals deeply.",
+"Consistency beats motivation.",
+"Portfolio > certificates."
+]
+
+hashtags=["#Coding","#Developers","#Tech","#AI"]
+
+fallback=[
+f"{random.choice(hooks)} {random.choice(tips)} {random.choice(hashtags)}"
+for _ in range(10)
 ]
 
 # =========================
-# GET SMART TOPIC
+# AI GENERATOR
 # =========================
-def pick_topic():
-    return random.choice(topics)
+topics=[
+"AI tools","coding careers","developer productivity",
+"tech salaries","learning to code","future of AI",
+"remote tech jobs","startups","automation"
+]
 
-# =========================
-# AI TWEET
-# =========================
 def ai_tweet():
-    topic = pick_topic()
+    if not use_ai:
+        return None
+
+    topic=random.choice(topics)
 
     prompt=f"""
-Write a professional, insightful tweet about {topic}.
+Write a professional tweet about {topic}.
 
 Rules:
-- under 200 characters
-- educational or motivational
-- 1–2 relevant hashtags
-- professional tone
-- no emojis spam
-- make it unique
+- under 300 chars
+- helpful or motivational
+- 2 hashtag
+- professional and human tone
 """
 
     try:
         r=model.generate_content(prompt)
         return r.text.strip()
     except:
+        print("Gemini quota/failure")
         return None
 
 # =========================
-# FALLBACK
-# =========================
-fallback=[
-"Consistency beats intensity in tech careers. #Developers",
-"Strong fundamentals make great engineers. #Coding",
-"Learning daily compounds over time. #Tech"
-]
-
-# =========================
-# GENERATE UNIQUE TWEET
+# GENERATE TWEET
 # =========================
 def generate_tweet():
-    memory = load_memory()
+    memory=load_memory()
 
-    for _ in range(3):
-        tweet = ai_tweet()
+    for _ in range(5):
+        tweet=ai_tweet()
 
         if not tweet:
-            tweet = random.choice(fallback)
+            tweet=random.choice(fallback)
 
         if tweet not in memory:
             memory.append(tweet)
 
-            if len(memory)>50:
+            if len(memory)>40:
                 memory.pop(0)
 
             save_memory(memory)
@@ -122,7 +134,7 @@ def generate_tweet():
 # =========================
 # POST
 # =========================
-def post_tweet():
+def post():
     tweet=generate_tweet()
 
     try:
@@ -130,13 +142,13 @@ def post_tweet():
         print("Tweeted:",tweet)
 
     except tweepy.Forbidden:
-        print("Duplicate blocked — retrying")
-        tweet=random.choice(fallback)
-        client.create_tweet(text=tweet,user_auth=True)
+        print("Duplicate blocked")
+    except Exception as e:
+        print("Twitter error:",e)
 
 # =========================
 # MAIN
 # =========================
 if __name__=="__main__":
-    print("PRO TECH BOT RUNNING")
-    post_tweet()
+    print("STABLE AI BOT RUNNING")
+    post()
